@@ -1,86 +1,174 @@
 # Options Greeks Pricer
 
-A 30-day deep-dive into options pricing, Greeks, volatility surfaces, and exotic derivatives — built entirely in pure Python (stdlib only, no numpy/pandas/scipy).
+A complete options pricing and risk management engine built in pure Python. Prices European and exotic options using Black-Scholes, Monte Carlo simulation, and stochastic volatility models. Computes the full Greeks suite — from delta and gamma through to vanna, volga, and charm — and runs real delta-hedging simulations with P&L attribution.
 
-## What's Inside
+No external dependencies. Pure Python 3.8+ standard library only.
 
-This repo covers the full stack of modern options theory, from closed-form Black-Scholes all the way to stochastic volatility models, exotic payoffs, and interest rate derivatives.
+---
 
-### Days 1–19 — Core Foundations
+## How It Works
 
-| Module | Topic |
-|--------|-------|
-| `greeks.py` | Black-Scholes pricing, delta/gamma/vega/theta/rho |
-| `analytics/` | Implied vol inversion, put-call parity, moneyness |
-| `calibration/` | Heston & SABR calibration via nonlinear least squares |
-| `data/` | Tick data ingestion, OHLCV processing |
-| `exotics/` | Barrier, Asian, lookback, digital options |
-| `hedging/` | Delta hedging simulation, P&L attribution |
-| `models/` | Binomial trees, trinomial lattices |
-| `pricing/` | Monte Carlo with variance reduction |
-| `risk/` | VaR, CVaR, scenario Greeks |
-| `volatility/` | Term structure, SABR smile |
+```mermaid
+flowchart TD
+    A[Market Inputs\nS, K, T, r, σ] --> B[Pricing Engine]
+    B --> C[Black-Scholes\nClosed Form]
+    B --> D[Monte Carlo\nSimulation]
+    B --> E[Stochastic Vol\nHeston / SABR]
+    B --> F[Local Vol\nDupire / CEV]
 
-### Days 20–30 — Advanced Topics (`quant_code/`)
+    C --> G[Greeks Engine]
+    D --> G
+    E --> G
+    F --> G
 
-| File | Topic |
-|------|-------|
-| `options_day20_smile_interpolation.py` | Smile interpolation: SVI, SABR, cubic spline |
-| `options_day21_multi_asset.py` | Multi-asset options: spread, basket, quanto |
-| `options_day22_scenario_analysis.py` | Greeks P&L scenario grids, ladder analysis |
-| `options_day23_jump_diffusion.py` | Merton jump-diffusion, Kou double-exponential |
-| `options_day24_tail_risk_hedging.py` | Tail risk hedging with OTM puts, skew trading |
-| `options_day25_local_volatility.py` | CEV model, Dupire local vol via finite differences |
-| `options_day26_stochastic_vol.py` | Heston CF + Gil-Pelaez, SABR Hagan 2002, full-truncation Euler MC |
-| `options_day27_exotic_options.py` | Barrier (Reiner-Rubinstein), Asian (geo + arithmetic MC), lookback |
-| `options_day28_vol_surface_svi.py` | SVI calibration, butterfly-free check via Dupire g(k) |
-| `options_day29_interest_rate_derivs.py` | Yield curve bootstrap, Black's caplets/floorlets, swaptions |
-| `options_day30_greeks_book.py` | Vanna/volga/charm/speed/zomma, P&L Taylor attribution, delta hedge sim |
+    G --> H[First Order\nΔ Γ ν θ ρ]
+    G --> I[Second Order\nVanna Volga Charm\nSpeed Zomma]
 
-## Key Concepts
+    H --> J[Options Book]
+    I --> J
 
-- **Black-Scholes** — closed-form pricing and full Greeks suite
-- **Implied volatility** — Newton-Raphson inversion, smile construction
-- **Local volatility** — Dupire equation, CEV model, finite-difference surface
-- **Stochastic volatility** — Heston (characteristic function + FFT), SABR (Hagan closed-form)
-- **Jump-diffusion** — Merton (infinite series), Kou (double-exponential)
-- **Exotic options** — Barrier (6 types, Brownian bridge MC), Asian (geo closed-form + control variate), Lookback, Forward-starting
-- **Volatility surface** — SVI parameterisation, arbitrage-free checks
-- **Interest rate derivatives** — LIBOR bootstrapping, cap/floor, swaption Black model
-- **Greeks P&L** — Second-order Taylor attribution, vanna/volga/charm
+    J --> K[P&L Attribution\nTaylor Expansion]
+    J --> L[Delta Hedge Sim\nDaily Rebalancing]
+    J --> M[Volatility Surface\nSVI Calibration]
 
-## Running the Code
+    M --> N[Arbitrage Check\nDupire Butterfly]
+```
+
+---
+
+## What It Can Price
+
+| Instrument | Method | Notes |
+|---|---|---|
+| European calls & puts | Black-Scholes exact | Full closed-form Greeks |
+| American options | Binomial / trinomial tree | Early exercise boundary |
+| Barrier options | Reiner-Rubinstein analytical | 6 barrier types (up/down in/out) |
+| Asian options | Geometric closed-form + arithmetic MC | Control variate variance reduction |
+| Lookback options | Floating & fixed strike | Monte Carlo |
+| Forward-starting options | Adjusted BS with forward vol | |
+| Basket / spread options | Multi-asset Monte Carlo | Correlated Brownian motions |
+| Interest rate caplets/floorlets | Black's model | Yield curve bootstrapped |
+| Swaptions | Black's model | Co-terminal swap |
+
+---
+
+## Greeks Output (Sample)
+
+```
+ATM Call  S=100  K=100  T=0.5  σ=20%  r=5%
+
+Price : 6.8887
+Delta : +0.5977   (dP/dS)
+Gamma : +0.027359  (d²P/dS²)
+Vega  : +0.2736   (dP per 1% σ move)
+Theta : -0.0222   (dP per calendar day)
+Rho   : +0.2644   (dP per 1% rate move)
+Vanna : -0.2052   (dΔ/dσ — cross-Greek)
+Volga : +3.5908   (d²P/dσ²  vol convexity)
+Charm : -0.000262  (dΔ/dt per day — delta bleed)
+Speed : -0.000752  (dΓ/dS)
+Zomma : -0.133202  (dΓ/dσ)
+```
+
+---
+
+## P&L Attribution (Sample)
+
+The Taylor-expansion decomposition breaks a $1,762 P&L move into its Greek components:
+
+```
+Position: Long ATM Call (qty=10)  |  dS=+2, dσ=+2%, dT=1 day
+
+Component    |        P&L
+-----------------------------
+delta        |   +$1,195.47   ← dominant driver
+gamma        |     +$54.72    ← convexity benefit
+vega         |    +$547.17    ← vol expansion
+theta        |     -$22.24    ← time decay
+vanna        |      -$8.21    ← cross exposure
+volga        |     +$71.82    ← vol-of-vol
+-----------------------------
+Estimated    |   +$1,838.73
+Actual       |   +$1,761.23
+Error        |     +$77.50    (4.4% — higher order terms)
+```
+
+---
+
+## Volatility Surface
+
+The SVI (Stochastic Volatility Inspired) parameterisation fits the entire implied vol smile:
+
+```
+w(k) = a + b · [ρ(k−m) + √((k−m)² + σ²)]
+```
+
+The engine calibrates `{a, b, ρ, m, σ}` via gradient descent and validates the surface is free of butterfly arbitrage using the Dupire local vol check g(k) > 0.
+
+```mermaid
+graph LR
+    A[Market IV Quotes] --> B[SVI Calibration\nGradient Descent]
+    B --> C[Fitted Smile\nw k ]
+    C --> D{Butterfly Check\ng k > 0?}
+    D -- Pass --> E[Arbitrage-Free Surface]
+    D -- Fail --> F[Reject / Re-fit]
+```
+
+---
+
+## Stochastic Volatility (Heston Model)
+
+```
+dS = μS dt + √v · S dW₁
+dv = κ(θ−v) dt + ξ√v dW₂     corr(dW₁,dW₂) = ρ
+```
+
+Pricing uses the **Gil-Pelaez inversion** of the Heston characteristic function — no Monte Carlo needed for vanilla options. MC is used for path-dependent payoffs with the **full-truncation Euler scheme** for variance process stability.
+
+---
+
+## Running It
 
 ```bash
-# Run any day file directly
-python quant_code/options_day20_smile_interpolation.py
+git clone https://github.com/Krish-1717/options-greeks-pricer
+cd options-greeks-pricer
 
-# Run all Day 20-30 demos
+# Run any module
+python quant_code/options_day26_stochastic_vol.py
+python quant_code/options_day28_vol_surface_svi.py
+python quant_code/options_day30_greeks_book.py
+
+# Run all modules
 python run_demos.py
 ```
 
-## Requirements
+**Requirements:** Python 3.8+, no pip install needed.
 
-Pure Python 3.8+ standard library only — no external packages required.
+---
 
-```
-python >= 3.8
-# No pip install needed
-```
-
-## Architecture
+## Project Structure
 
 ```
 options-greeks-pricer/
-├── greeks.py                    # Entry point: BS pricing + Greeks
-├── analytics/                   # Implied vol, moneyness helpers
-├── calibration/                 # Model calibration routines
-├── models/                      # Tree models (binomial, trinomial)
-├── pricing/                     # Monte Carlo engines
-├── volatility/                  # SABR, term structure
-├── hedging/                     # Delta hedging P&L
-├── exotics/                     # Barrier, Asian, digital
-├── risk/                        # VaR, scenario analysis
-├── quant_code/                  # Days 20-30 advanced modules
-└── run_demos.py                 # Demo runner for all modules
+├── greeks.py                         # Black-Scholes pricing + core Greeks
+├── analytics/                        # Implied vol solvers, moneyness
+├── models/                           # Binomial/trinomial trees
+├── pricing/                          # Monte Carlo with variance reduction
+├── calibration/                      # Heston & SABR calibration
+├── volatility/                       # SABR smile, term structure
+├── hedging/                          # Delta hedging P&L simulation
+├── exotics/                          # Barrier, Asian, digital
+├── risk/                             # VaR, scenario stress testing
+└── quant_code/
+    ├── options_day20_smile_interpolation.py  # Cubic spline / SABR smile
+    ├── options_day21_multi_asset.py          # Spread, basket, quanto
+    ├── options_day22_scenario_analysis.py   # Greeks scenario grids
+    ├── options_day23_jump_diffusion.py       # Merton / Kou models
+    ├── options_day24_tail_risk_hedging.py    # OTM put tail protection
+    ├── options_day25_local_volatility.py     # Dupire, CEV, finite diff
+    ├── options_day26_stochastic_vol.py       # Heston CF, SABR Hagan
+    ├── options_day27_exotic_options.py       # Barrier, Asian, lookback
+    ├── options_day28_vol_surface_svi.py      # SVI calibration + arb check
+    ├── options_day29_interest_rate_derivs.py # Yield curve, caps, swaptions
+    └── options_day30_greeks_book.py          # Full book: vanna/volga/charm
 ```
